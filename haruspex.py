@@ -39,7 +39,7 @@ def main():
 #    print "kpa axis"
 #    print kpaAxis
 
-    egoTable = egoFromLog(args.logfile[0])
+    egoTable = egoFromLog(args.logfile[0], kpaAxis, rpmAxis)
     print egoTable
 
     #data log sample rate
@@ -71,7 +71,8 @@ def isLast(itr):
         old = new
     yield True, old
 
-def egoFromLog(file):
+def egoFromLog(file, kpaAxis, rpmAxis):
+    egoTable = np.zeros([len(kpaAxis), len(rpmAxis)])
     with open(file) as csvfile:
         dialect = csv.Sniffer().sniff(csvfile.read(1024))
         csvfile.seek(0)
@@ -85,10 +86,25 @@ def egoFromLog(file):
         indexTPS = row.index("TPS")
         indexETE = row.index("ETE")
 
+        lastTPS = 0
         datapoints = 0; ignoredEdge = 0; ignoredEGO = 0; ignoredETE = 0; ignoredDTPS=0;
         for (isLastDataPoint, row) in isLast(reader):
             datapoints += 1
 
+            CHT  = float(row[indexCHT])
+            EGO  = float(row[indexEGO])
+            ETE  = float(row[indexETE])
+            MAP  = float(row[indexMAP])
+            RPM  = float(row[indexRPM])
+            TPS  = float(row[indexTPS])
+            DTPS = TPS - lastTPS
+            lastTPS = TPS
+
+            rpmCell = [j for j in rpmAxis if j >= RPM]
+            kpaCell = [j for j in kpaAxis if j >= MAP]
+            print rpmCell, kpaCell
+
+    return egoTable
 
 
 if __name__ == "__main__":
