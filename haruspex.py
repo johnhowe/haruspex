@@ -1,11 +1,15 @@
 #!/bin/python2
 
+import matplotlib as mpl
+mpl.use("Agg")
 import argparse
 import csv
-#import os
-#import sys
 import numpy as np
+import os
+#import sys
+import seaborn as sns
 from parse import search, findall
+import matplotlib.pyplot as plt
 
 def main():
     np.set_printoptions(linewidth=2048, precision=2, nanstr='', suppress=True)
@@ -39,15 +43,24 @@ def main():
 #    print "kpa axis"
 #    print kpaAxis
 
-    egoTable = egoFromLog(args.logfile[0], kpaAxis, rpmAxis, veTable)
+    os.system('clear')
+    egoTable, egoTableWeight = egoFromLog(args.logfile[0], kpaAxis, rpmAxis, veTable)
+    print "egoTable", egoTable
+    print "rpmAxis ", rpmAxis
+    print "kpaAxis ", kpaAxis
+    print "veTable ", veTable
     print egoTable
-    print rpmAxis
-    print kpaAxis
-    print veTable
 
+    plt.title("Derived Lambda")
+    sns.heatmap(egoTable, annot=True, fmt='.2f', linewidths=.1, vmin=0.7, vmax=1.3, \
+                xticklabels=rpmAxis, yticklabels=kpaAxis)
+    plt.savefig('ego.png')
+    w = 1000*egoTableWeight/sum(egoTableWeight)
+    print w
+    sns.heatmap(w, annot=True, fmt='f', linewidths=.1, \
+                xticklabels=rpmAxis, yticklabels=kpaAxis)
+    plt.savefig('egoW.png')
 
-    #data log sample rate
-    #friction in seconds
 
 def importAxis(file, macroKeyword):
     axis = []
@@ -75,36 +88,39 @@ def isLast(itr):
         old = new
     yield True, old
 
-def lookup3dTable(xAxis, yAxis, table, xIndex, yIndex):
+def getCellWeight(xAxis, yAxis, xIndex, yIndex):
+    weight = np.zeros([len(yAxis), len(xAxis)])
     x0 = next((j for j in reversed(xAxis) if j <= xIndex), xAxis[0])
     x1  = next((j for j in xAxis if j >= xIndex), xAxis[-1])
     y0 = next(( j for j in reversed(yAxis) if j <= yIndex), yAxis[0])
     y1  = next((j for j in yAxis if j >= yIndex), yAxis[-1])
 
     if (x0 == x1) and (y0 == y1):
-        val = table[yAxis.index(y0), xAxis.index(x0)]
+        weight[yAxis.index(y0), xAxis.index(x0)] = 1
     elif (x0 == x1):
-        val = table[yAxis.index(y0), xAxis.index(x0)] + (table[yAxis.index(y0), xAxis.index(x0)] \
-                - table[yAxis.index(y1), xAxis.index(x0)])*((yIndex-y0)/(y1-y0))
+        weight[yAxis.index(y0), xAxis.index(x0)] = (y1 - yIndex) / (y1 - y0)
+        weight[yAxis.index(y1), xAxis.index(x0)] = (yIndex - y0) / (y1 - y0)
     elif (y0 == y1):
-        val = table[yAxis.index(y0), xAxis.index(x0)] + (table[yAxis.index(y0), xAxis.index(x0)] \
-                - table[yAxis.index(y0), xAxis.index(x1)])*((xIndex-x0)/(x1-x0))
+        weight[yAxis.index(y0), xAxis.index(x0)] = (x1 - xIndex) / (x1 - x0)
+        weight[yAxis.index(y0), xAxis.index(x1)] = (xIndex - x0) / (x1 - x0)
     else:
         area_00 = (xIndex - x0) * (yIndex - y0)
         area_01 = (xIndex - x0) * (y1 - yIndex)
         area_10 = (x1 - xIndex) * (yIndex - y0)
         area_11 = (x1 - xIndex) * (y1 - yIndex)
         area = area_00 + area_01 + area_10 + area_11
-        val = area_00 * table[yAxis.index(y1), xAxis.index(x1)] / area \
-            + area_01 * table[yAxis.index(y0), xAxis.index(x1)] / area \
-            + area_10 * table[yAxis.index(y1), xAxis.index(x0)] / area \
-            + area_11 * table[yAxis.index(y0), xAxis.index(x0)] / area
 
-    print xIndex, '\t', yIndex, '\t', x0, '\t', x1,'\t', y0, '\t', y1, '\t', val
+        weight[yAxis.index(y0), xAxis.index(x0)] = area_11 / area
+        weight[yAxis.index(y0), xAxis.index(x1)] = area_10 / area
+        weight[yAxis.index(y1), xAxis.index(x0)] = area_01 / area
+        weight[yAxis.index(y1), xAxis.index(x1)] = area_00 / area
+
+    return weight
 
 def egoFromLog(file, kpaAxis, rpmAxis, veTable):
-    egoTable = np.zeros([len(kpaAxis), len(rpmAxis)])
     xx, yy = np.meshgrid(rpmAxis, kpaAxis)
+    lambdaSigmaNum = np.zeros([len(kpaAxis), len(rpmAxis)])
+    lambdaSigmaDen = np.ones([len(kpaAxis), len(rpmAxis)])
     with open(file) as csvfile:
         dialect = csv.Sniffer().sniff(csvfile.read(1024))
         csvfile.seek(0)
@@ -112,32 +128,37 @@ def egoFromLog(file, kpaAxis, rpmAxis, veTable):
 
         row = reader.next()
         #indexCHT = row.index("CHT")
-        #indexEGO = row.index("EGO")
+        indexEGO = row.index("EGO")
         indexMAP = row.index("MAP")
         indexRPM = row.index("RPM")
         #indexTPS = row.index("TPS")
-        #indexETE = row.index("ETE")
+        indexETE = row.index("ETE")
 
         #lastTPS = 0
         datapoints = 0;
         #ignoredEdge = 0; ignoredEGO = 0; ignoredETE = 0; ignoredDTPS=0;
+
         for (isLastDataPoint, row) in isLast(reader):
             datapoints += 1
 
             #CHT  = float(row[indexCHT])
-            #EGO  = float(row[indexEGO])
-            #ETE  = float(row[indexETE])
+            EGO  = float(row[indexEGO])
+            ETE  = float(row[indexETE])
             MAP  = float(row[indexMAP])
             RPM  = float(row[indexRPM])
             #TPS  = float(row[indexTPS])
             #DTPS = TPS - lastTPS
             #lastTPS = TPS
 
-            #TODO why am I looking this up? should't I just be interested in the weighting of each cell?
-            veValue = lookup3dTable(rpmAxis, kpaAxis, veTable, RPM, MAP)
+            if (ETE > 100.1):
+                continue
+            if (EGO > 1.4) or (EGO < 0.6):
+                continue
+            cellWeight = getCellWeight(rpmAxis, kpaAxis, RPM, MAP)
+            lambdaSigmaNum += cellWeight * EGO
+            lambdaSigmaDen += cellWeight
 
-
-    return egoTable
+    return lambdaSigmaNum/lambdaSigmaDen, lambdaSigmaNum
 
 
 if __name__ == "__main__":
