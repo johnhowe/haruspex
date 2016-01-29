@@ -43,23 +43,25 @@ def main():
 #    print "kpa axis"
 #    print kpaAxis
 
-    os.system('clear')
+    #os.system('clear')
     egoTable, egoTableWeight = egoFromLog(args.logfile[0], kpaAxis, rpmAxis, veTable)
-    print "egoTable", egoTable
+    # TODO Check that we got something back - eg, perhaps we never got to operating temperature
     print "rpmAxis ", rpmAxis
     print "kpaAxis ", kpaAxis
-    print "veTable ", veTable
-    print egoTable
+    print "veTable\n", veTable
+    print "egoTableWeight\n", egoTableWeight
+    print "egoTable\n", egoTable
 
-    plt.title("Derived Lambda")
-    sns.heatmap(egoTable, annot=True, fmt='.2f', linewidths=.1, vmin=0.7, vmax=1.3, \
+    plt.title("Measured Lambda")
+    sns.heatmap(egoTable, annot=True, fmt='.2f', linewidths=0.01, vmin=0.7, vmax=1.3, center=1.0,  \
                 xticklabels=rpmAxis, yticklabels=kpaAxis)
     plt.savefig('ego.png')
-    w = 1000*egoTableWeight/sum(egoTableWeight)
-    print w
-    sns.heatmap(w, annot=True, fmt='f', linewidths=.1, \
+
+    plt.clf()
+    plt.title("Measured Lambda Confidence")
+    sns.heatmap(egoTableWeight, linewidths=.1, \
                 xticklabels=rpmAxis, yticklabels=kpaAxis)
-    plt.savefig('egoW.png')
+    plt.savefig('egoConf.png')
 
 
 def importAxis(file, macroKeyword):
@@ -104,10 +106,10 @@ def getCellWeight(xAxis, yAxis, xIndex, yIndex):
         weight[yAxis.index(y0), xAxis.index(x0)] = (x1 - xIndex) / (x1 - x0)
         weight[yAxis.index(y0), xAxis.index(x1)] = (xIndex - x0) / (x1 - x0)
     else:
-        area_00 = (xIndex - x0) * (yIndex - y0)
-        area_01 = (xIndex - x0) * (y1 - yIndex)
-        area_10 = (x1 - xIndex) * (yIndex - y0)
-        area_11 = (x1 - xIndex) * (y1 - yIndex)
+        area_00 = (yIndex - y0) * (xIndex - x0)
+        area_01 = (yIndex - y0) * (x1 - xIndex)
+        area_10 = (y1 - yIndex) * (xIndex - x0)
+        area_11 = (y1 - yIndex) * (x1 - xIndex)
         area = area_00 + area_01 + area_10 + area_11
 
         weight[yAxis.index(y0), xAxis.index(x0)] = area_11 / area
@@ -120,7 +122,7 @@ def getCellWeight(xAxis, yAxis, xIndex, yIndex):
 def egoFromLog(file, kpaAxis, rpmAxis, veTable):
     xx, yy = np.meshgrid(rpmAxis, kpaAxis)
     lambdaSigmaNum = np.zeros([len(kpaAxis), len(rpmAxis)])
-    lambdaSigmaDen = np.ones([len(kpaAxis), len(rpmAxis)])
+    lambdaSigmaDen = np.zeros([len(kpaAxis), len(rpmAxis)])
     with open(file) as csvfile:
         dialect = csv.Sniffer().sniff(csvfile.read(1024))
         csvfile.seek(0)
@@ -131,12 +133,12 @@ def egoFromLog(file, kpaAxis, rpmAxis, veTable):
         indexEGO = row.index("EGO")
         indexMAP = row.index("MAP")
         indexRPM = row.index("RPM")
-        #indexTPS = row.index("TPS")
+        indexTPS = row.index("TPS")
         indexETE = row.index("ETE")
 
-        #lastTPS = 0
+        lastTPS = 0
         datapoints = 0;
-        #ignoredEdge = 0; ignoredEGO = 0; ignoredETE = 0; ignoredDTPS=0;
+        ignoredEGO = 0; ignoredETE = 0; ignoredDTPS=0;
 
         for (isLastDataPoint, row) in isLast(reader):
             datapoints += 1
@@ -146,19 +148,29 @@ def egoFromLog(file, kpaAxis, rpmAxis, veTable):
             ETE  = float(row[indexETE])
             MAP  = float(row[indexMAP])
             RPM  = float(row[indexRPM])
-            #TPS  = float(row[indexTPS])
-            #DTPS = TPS - lastTPS
-            #lastTPS = TPS
+            TPS  = float(row[indexTPS])
+            DTPS = TPS - lastTPS
+            lastTPS = TPS
 
             if (ETE > 100.1):
+                ignoredETE += 1
                 continue
             if (EGO > 1.4) or (EGO < 0.6):
+                ignoredEGO += 1
+                continue
+            if (DTPS > 0.01):
+                ignoredDTPS += 1
                 continue
             cellWeight = getCellWeight(rpmAxis, kpaAxis, RPM, MAP)
             lambdaSigmaNum += cellWeight * EGO
             lambdaSigmaDen += cellWeight
+            #import ipdb;ipdb.set_trace() # SET PDB BREAKPOINT
 
-    return lambdaSigmaNum/lambdaSigmaDen, lambdaSigmaNum
+    print datapoints, "samples seen; ignored", ignoredETE, "warmup, ", ignoredEGO, "ego, and", ignoredDTPS, "dtps"
+
+    print "lambdaSigmaNum\n", lambdaSigmaNum
+    print "lambdaSigmaDen\n", lambdaSigmaDen
+    return lambdaSigmaNum/lambdaSigmaDen, lambdaSigmaDen
 
 
 if __name__ == "__main__":
