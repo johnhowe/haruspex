@@ -60,6 +60,8 @@ def main():
         return
 
     newVeTable = fixVE(veTable, afrTable, egoTable, confidenceTable)
+    print "\nProphesied VE table:"
+    dumpTable(newVeTable, 'VE')
 
     plt.clf()
     plt.title("VE Table")
