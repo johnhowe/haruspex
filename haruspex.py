@@ -1,15 +1,26 @@
 #!/bin/python2
+#import ipdb;ipdb.set_trace() # SET PDB BREAKPOINT
 
 import matplotlib as mpl
 mpl.use("Agg")
 import argparse
 import csv
 import numpy as np
-import os
-#import sys
+#import os
+import sys
 import seaborn as sns
 from parse import search, findall
 import matplotlib.pyplot as plt
+
+minConfidenceThreshold = 100
+maxETE = 100.1
+maxEGO = 1.4
+minEGO = 0.6
+minRPM = 100
+maxDTPS = 0.01
+stoichiometricAFRPetrol = 14.7
+veChangeFriction = 1000
+sampleRejectionWindowWidth = 30
 
 def main():
     np.set_printoptions(linewidth=2048, precision=2, nanstr='', suppress=True)
@@ -18,51 +29,73 @@ def main():
     parser.add_argument('kpa', nargs=1, help='KPA axis data')
     parser.add_argument('rpm', nargs=1, help='RPM axis data')
     parser.add_argument('ve', nargs=1, help='VE table data')
+    parser.add_argument('afr', nargs=1, help='AFR table data')
     parser.add_argument('logfile', nargs=1, help='FreeEMS datalog file')
     args = parser.parse_args()
 
     assert args.kpa, 'Missing KPA axis'
     assert args.rpm, 'Missing RPM axis'
     assert args.ve,  'Missing VE table'
-    print
-    print 'RPM axis file:', args.rpm[0]
+
+    print '\nRPM axis file:', args.rpm[0]
     print 'KPA axis file:', args.kpa[0]
     print 'VE table file:', args.ve[0]
+    print 'AFR table file:', args.afr[0]
     print 'Datalog file: ', args.logfile[0]
 
     kpaAxis = importAxis(args.kpa[0], 'KPA')
     rpmAxis = importAxis(args.rpm[0], 'RPM')
     veTable = importTable(args.ve[0], 'VE')
-    assert len(kpaAxis)*len(rpmAxis) == len(veTable), "Data sizes don't match - Incorrect table files supplied?"
+    assert len(kpaAxis)*len(rpmAxis) == len(veTable), "Axis don't fit VE table - Incorrect table files supplied?"
     veTable = veTable.reshape(len(kpaAxis), len(rpmAxis))
+    afrTable = importTable(args.afr[0], 'AP')
+    assert len(kpaAxis)*len(rpmAxis) == len(afrTable), "Axis don't fit AFR table - For now the AFR table must be the same dimensions as the VE table"
+    afrTable = afrTable.reshape(len(kpaAxis), len(rpmAxis))
+    if (np.min(afrTable) > 3): # convert from AFR to Lambda
+        afrTable = afrTable / stoichiometricAFRPetrol
 
-#    print "ve table"
-#    print veTable
-#    print "rpm axis"
-#    print rpmAxis
-#    print "kpa axis"
-#    print kpaAxis
+    egoTable, confidenceTable = egoFromLog(args.logfile[0], kpaAxis, rpmAxis, veTable)
+    if (sum(sum(confidenceTable)) == 0):
+        print "No valid data - perhaps we never go to operating temperature"
+        return
 
-    #os.system('clear')
-    egoTable, egoTableWeight = egoFromLog(args.logfile[0], kpaAxis, rpmAxis, veTable)
-    # TODO Check that we got something back - eg, perhaps we never got to operating temperature
-    print "rpmAxis ", rpmAxis
-    print "kpaAxis ", kpaAxis
-    print "veTable\n", veTable
-    print "egoTableWeight\n", egoTableWeight
-    print "egoTable\n", egoTable
+    newVeTable = fixVE(veTable, afrTable, egoTable, confidenceTable)
 
-    plt.title("Measured Lambda")
-    sns.heatmap(egoTable, annot=True, fmt='.2f', linewidths=0.01, vmin=0.7, vmax=1.3, center=1.0,  \
+    plt.clf()
+    plt.title("VE Table")
+    sns.heatmap(veTable , annot=True, fmt='.1f', \
+                xticklabels=rpmAxis, yticklabels=kpaAxis)
+    plt.savefig('ve.png')
+
+    plt.clf()
+    plt.title("Target Lambda")
+    sns.heatmap(afrTable , annot=True, fmt='.2f', \
+                xticklabels=rpmAxis, yticklabels=kpaAxis)
+    plt.savefig('afr.png')
+
+    plt.clf()
+    plt.title("Measured EGO")
+    sns.heatmap(egoTable, annot=True, fmt='.2f', vmin=0.7, vmax=1.3, \
                 xticklabels=rpmAxis, yticklabels=kpaAxis)
     plt.savefig('ego.png')
 
     plt.clf()
-    plt.title("Measured Lambda Confidence")
-    sns.heatmap(egoTableWeight, linewidths=.1, \
-                xticklabels=rpmAxis, yticklabels=kpaAxis)
+    plt.title("Confidence")
+    sns.heatmap(confidenceTable,  vmin=minConfidenceThreshold, \
+                annot=True, fmt='.0f', xticklabels=rpmAxis, yticklabels=kpaAxis)
     plt.savefig('egoConf.png')
 
+    plt.clf()
+    plt.title("Prophesied VE Table")
+    sns.heatmap(newVeTable , annot=True, fmt='.1f', \
+                xticklabels=rpmAxis, yticklabels=kpaAxis)
+    plt.savefig('newVe.png')
+
+    plt.clf()
+    plt.title("Delta VE Table")
+    sns.heatmap(newVeTable - veTable , annot=True, fmt='.1f', \
+                xticklabels=rpmAxis, yticklabels=kpaAxis)
+    plt.savefig('deltaVe.png')
 
 def importAxis(file, macroKeyword):
     axis = []
@@ -78,10 +111,17 @@ def importTable(file, macroKeyword):
     table = []
     with open(file) as f:
         for line in f:
-             for val in findall(macroKeyword + '({:d})', line):
+            for val in findall(macroKeyword + '({:g})', line):
                  table.append(val[0])
     assert len(table), "No table data found"
     return np.array(table)
+
+def dumpTable(table, macroKeyword):
+    for index, value in np.ndenumerate(table):
+        if (index[1] == 0):
+            sys.stdout.write("\n")
+        sys.stdout.write(" {0}({1:.1f}),".format(macroKeyword, value))
+    sys.stdout.write("\n")
 
 def isLast(itr):
     old = itr.next()
@@ -136,12 +176,54 @@ def egoFromLog(file, kpaAxis, rpmAxis, veTable):
         indexTPS = row.index("TPS")
         indexETE = row.index("ETE")
 
-        lastTPS = 0
-        datapoints = 0;
-        ignoredEGO = 0; ignoredETE = 0; ignoredDTPS=0;
+        lastTPS = sample = ignoredEGO = ignoredRPM = ignoredETE = ignoredDTPS = 0;
 
+        rejectedSamples = np.array([])
+        sys.stdout.write("Parsing datalog")
         for (isLastDataPoint, row) in isLast(reader):
-            datapoints += 1
+            sample += 1
+            if (sample % 5000 == 0):
+                sys.stdout.write('.')
+                sys.stdout.flush()
+
+            #CHT  = float(row[indexCHT])
+            EGO  = float(row[indexEGO])
+            ETE  = float(row[indexETE])
+            MAP  = float(row[indexMAP])
+            RPM  = float(row[indexRPM])
+            TPS  = float(row[indexTPS])
+            DTPS = TPS - lastTPS
+            lastTPS = TPS
+            if (RPM < minRPM):
+                ignoredRPM += 1
+            elif (ETE > maxETE):
+                ignoredETE += 1
+            elif (EGO > maxEGO) or (EGO < minEGO):
+                ignoredEGO += 1
+            elif (DTPS > maxDTPS):
+                ignoredDTPS += 1
+            else:
+                # the sample is accepted
+                continue
+            rejectedSamples = np.append(rejectedSamples, sample)
+
+        rejectedSamples = np.append(rejectedSamples, sample)
+        csvfile.seek(0)
+        row = reader.next()
+        sample = 0
+        nextRejectedSampleIndex = 0
+        numRejectedSamples = 0
+        for (isLastDataPoint, row) in isLast(reader):
+            sample += 1
+            if (sample % 5000 == 0):
+                sys.stdout.write('\b \b')
+                sys.stdout.flush()
+
+            if (sample > rejectedSamples[nextRejectedSampleIndex] + sampleRejectionWindowWidth/2):
+                nextRejectedSampleIndex += 1
+            if (abs(sample - rejectedSamples[nextRejectedSampleIndex]) <= sampleRejectionWindowWidth/2):
+                numRejectedSamples += 1
+                continue
 
             #CHT  = float(row[indexCHT])
             EGO  = float(row[indexEGO])
@@ -152,26 +234,29 @@ def egoFromLog(file, kpaAxis, rpmAxis, veTable):
             DTPS = TPS - lastTPS
             lastTPS = TPS
 
-            if (ETE > 100.1):
-                ignoredETE += 1
-                continue
-            if (EGO > 1.4) or (EGO < 0.6):
-                ignoredEGO += 1
-                continue
-            if (DTPS > 0.01):
-                ignoredDTPS += 1
-                continue
             cellWeight = getCellWeight(rpmAxis, kpaAxis, RPM, MAP)
             lambdaSigmaNum += cellWeight * EGO
             lambdaSigmaDen += cellWeight
-            #import ipdb;ipdb.set_trace() # SET PDB BREAKPOINT
 
-    print datapoints, "samples seen; ignored", ignoredETE, "warmup, ", ignoredEGO, "ego, and", ignoredDTPS, "dtps"
+    print '\n', sample, "samples seen; ignored", ignoredETE, "warmup,", ignoredRPM, "rpm,", ignoredEGO, "ego, and", ignoredDTPS, "dtps"
+    print rejectedSamples.size, 'samples rejected'
+    print numRejectedSamples, 'samples rejected including window'
 
-    print "lambdaSigmaNum\n", lambdaSigmaNum
-    print "lambdaSigmaDen\n", lambdaSigmaDen
+    #print "lambdaSigmaNum\n", lambdaSigmaNum
+    #print "lambdaSigmaDen\n", lambdaSigmaDen
     return lambdaSigmaNum/lambdaSigmaDen, lambdaSigmaDen
 
+
+def fixVE(veTable, afrTable, egoTable, confidenceTable):
+    newVeTable = np.zeros_like(veTable)
+    for index, value in np.ndenumerate(veTable):
+        effectiveLambda = (veChangeFriction * afrTable[index] + egoTable[index] * confidenceTable[index]) / (veChangeFriction + confidenceTable[index])
+        #TODO plot the effectiveLambda table too
+        if (effectiveLambda > 0):
+            newVeTable[index] = veTable[index] * (effectiveLambda / afrTable[index])
+        else:
+            newVeTable[index] = veTable[index]
+    return newVeTable
 
 if __name__ == "__main__":
     main()
