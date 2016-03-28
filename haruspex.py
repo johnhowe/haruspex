@@ -149,7 +149,7 @@ def dumpTable(table, macroKeyword):
     for index, value in np.ndenumerate(table):
         if (index[1] == 0):
             sys.stdout.write("\n")
-        sys.stdout.write(" {0}({1:.1f}),".format(macroKeyword, value))
+        sys.stdout.write(" {0}({1:4.1f}),".format(macroKeyword, value))
     sys.stdout.write("\n")
 
 def isLast(itr):
