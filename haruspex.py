@@ -76,38 +76,55 @@ def main():
     plt.clf()
     plt.title("VE Table")
     sns.heatmap(veTable , annot=True, fmt='.1f', \
-                xticklabels=rpmAxis, yticklabels=kpaAxis)
-    plt.savefig('ve.png')
+                xticklabels=rpmAxis, yticklabels=kpaAxis, annot_kws={"size":6})
+    plt.savefig('ve.png', dpi=300)
+
+    sys.stdout.write('.')
+    sys.stdout.flush()
 
     plt.clf()
     plt.title("Target Lambda")
     sns.heatmap(afrTable , annot=True, fmt='.2f', \
-                xticklabels=rpmAxis, yticklabels=kpaAxis)
-    plt.savefig('afr.png')
+                xticklabels=rpmAxis, yticklabels=kpaAxis, annot_kws={"size":6})
+    plt.savefig('afr.png', dpi=300)
+
+    sys.stdout.write('.')
+    sys.stdout.flush()
 
     plt.clf()
     plt.title("Measured EGO")
     sns.heatmap(egoTable, annot=True, fmt='.2f', vmin=0.7, vmax=1.3, \
-                xticklabels=rpmAxis, yticklabels=kpaAxis)
-    plt.savefig('ego.png')
+                xticklabels=rpmAxis, yticklabels=kpaAxis, annot_kws={"size":6})
+    plt.savefig('ego.png', dpi=300)
+
+    sys.stdout.write('.')
+    sys.stdout.flush()
 
     plt.clf()
     plt.title("Confidence")
     sns.heatmap(confidenceTable,  vmin=minConfidenceThreshold, \
-                annot=True, fmt='.0f', xticklabels=rpmAxis, yticklabels=kpaAxis)
-    plt.savefig('egoConf.png')
+                annot=True, fmt='.0f', xticklabels=rpmAxis, yticklabels=kpaAxis, annot_kws={"size":6})
+    plt.savefig('egoConf.png', dpi=300)
+
+    sys.stdout.write('.')
+    sys.stdout.flush()
 
     plt.clf()
     plt.title("Prophesied VE Table")
     sns.heatmap(newVeTable , annot=True, fmt='.1f', \
-                xticklabels=rpmAxis, yticklabels=kpaAxis)
-    plt.savefig('newVe.png')
+                xticklabels=rpmAxis, yticklabels=kpaAxis, annot_kws={"size":6})
+    plt.savefig('newVe.png', dpi=300)
+
+    sys.stdout.write('.')
+    sys.stdout.flush()
 
     plt.clf()
     plt.title("Delta VE Table")
     sns.heatmap(newVeTable - veTable , annot=True, fmt='.1f', \
-                xticklabels=rpmAxis, yticklabels=kpaAxis)
-    plt.savefig('deltaVe.png')
+                xticklabels=rpmAxis, yticklabels=kpaAxis, annot_kws={"size":6})
+    plt.savefig('deltaVe.png', dpi=300)
+
+    print '.'
 
 def importAxis(file, macroKeyword):
     axis = []
