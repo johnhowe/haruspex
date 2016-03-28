@@ -12,6 +12,16 @@ import seaborn as sns
 from parse import search, findall
 import matplotlib.pyplot as plt
 
+# TODO VE change friction table - can add blacklisting for -ve value?
+# TODO Get paths from a config file - perhaps log is passed explicitly still
+# TODO Lambda distribution per cell - store which edges were being interpolated against
+# TODO Highlight engine issues eg IAT heat soak ;)
+# TODO Output to ve header file with specific changes in comments fields
+# TODO Summary of changes - modified cells, log length, etc.
+# TODO Plot of KPA/RPM distributions
+# TODO Export CSV with analysis info stamped in
+# TODO Pass in multiple logs
+
 minConfidenceThreshold = 100
 maxETE = 100.1
 maxEGO = 1.4
