@@ -2,6 +2,7 @@
 #import ipdb;ipdb.set_trace() # SET PDB BREAKPOINT
 
 import matplotlib as mpl
+from matplotlib.font_manager import FontProperties
 mpl.use("Agg")
 import argparse
 import csv
@@ -66,12 +67,17 @@ def main():
 
     egoTable, confidenceTable = egoFromLog(args.logfile[0], kpaAxis, rpmAxis, veTable)
     if (sum(sum(confidenceTable)) == 0):
-        print "No valid data - perhaps we never go to operating temperature"
+        print "No valid data - perhaps we never reached operating temperature"
         return
 
     newVeTable = fixVE(veTable, afrTable, egoTable, confidenceTable)
     print "\nProphesied VE table:"
     dumpTable(newVeTable, 'VE')
+
+    sys.stdout.write("\nSaving images")
+    sys.stdout.flush()
+    font = FontProperties()
+    font.set_size('xx-small')
 
     plt.clf()
     plt.title("VE Table")
