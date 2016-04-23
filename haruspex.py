@@ -1,4 +1,4 @@
-#!/bin/python2
+#!/usr/bin/env python2
 #import ipdb;ipdb.set_trace() # SET PDB BREAKPOINT
 
 import matplotlib as mpl
@@ -70,7 +70,10 @@ def main():
         print "No valid data - perhaps we never reached operating temperature"
         return
 
-    newVeTable = fixVE(veTable, afrTable, egoTable, confidenceTable)
+    deltaVeTable = fixVE(veTable, afrTable, egoTable, confidenceTable)
+    dumpTable(deltaVeTable, 'D')
+
+    newVeTable = veTable + deltaVeTable
     print "\nProphesied VE table:"
     dumpTable(newVeTable, 'VE')
 
@@ -126,7 +129,7 @@ def main():
 
     plt.clf()
     plt.title("Delta VE Table")
-    sns.heatmap(newVeTable - veTable , annot=True, fmt='.1f', \
+    sns.heatmap(deltaVeTable, annot=True, fmt='.1f', \
                 xticklabels=rpmAxis, yticklabels=kpaAxis, annot_kws={"size":6})
     plt.savefig('deltaVe.png', dpi=300)
 
@@ -283,15 +286,15 @@ def egoFromLog(file, kpaAxis, rpmAxis, veTable):
 
 
 def fixVE(veTable, afrTable, egoTable, confidenceTable):
-    newVeTable = np.zeros_like(veTable)
+    deltaVeTable = np.zeros_like(veTable)
     for index, value in np.ndenumerate(veTable):
         effectiveLambda = (veChangeFriction * afrTable[index] + egoTable[index] * confidenceTable[index]) / (veChangeFriction + confidenceTable[index])
         #TODO plot the effectiveLambda table too
         if (effectiveLambda > 0):
-            newVeTable[index] = veTable[index] * (effectiveLambda / afrTable[index])
+            deltaVeTable[index] = (veTable[index] * (effectiveLambda / afrTable[index])) - veTable[index]
         else:
-            newVeTable[index] = veTable[index]
-    return newVeTable
+            deltaVeTable[index] = 0
+    return deltaVeTable
 
 if __name__ == "__main__":
     main()
