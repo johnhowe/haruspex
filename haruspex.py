@@ -238,7 +238,7 @@ def egoFromLog(file, kpaAxis, rpmAxis, veTable):
                 ignoredETE += 1
             elif (EGO > maxEGO) or (EGO < minEGO):
                 ignoredEGO += 1
-            elif (DTPS > maxDTPS):
+            elif (DTPS > maxDTPS and MAP < 80):
                 ignoredDTPS += 1
             else:
                 # the sample is accepted
