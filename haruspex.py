@@ -13,6 +13,11 @@ import seaborn as sns
 from parse import search, findall
 import matplotlib.pyplot as plt
 
+# TODO plot all samples in a given cell, showing ego reading along with other
+# info like clt, iat, aap, dtps, etc...  which can be used to sort by ego and
+# see what (if any) other factor correlates with the (if any) variance - can
+# also see how much spread there is of ego values in the cell
+
 # TODO VE change friction table - can add blacklisting for -ve value?
 # TODO Get paths from a config file - perhaps log is passed explicitly still
 # TODO Lambda distribution per cell - store which edges were being interpolated against
@@ -23,15 +28,16 @@ import matplotlib.pyplot as plt
 # TODO Export CSV with analysis info stamped in
 # TODO Pass in multiple logs
 
-minConfidenceThreshold = 100
+minConfidenceThreshold = 50
 maxETE = 100.1
 maxEGO = 1.4
 minEGO = 0.6
 minRPM = 100
-maxDTPS = 0.01
+maxDTPS = 0.005
+minTPS = 99
 stoichiometricAFRPetrol = 14.7
-veChangeFriction = 1000
-sampleRejectionWindowWidth = 30
+veChangeFriction = 0
+sampleRejectionWindowWidth = 5
 
 def main():
     np.set_printoptions(linewidth=2048, precision=2, nanstr='', suppress=True)
@@ -111,7 +117,7 @@ def main():
 
     plt.clf()
     plt.title("Confidence")
-    sns.heatmap(confidenceTable,  vmin=minConfidenceThreshold, \
+    sns.heatmap(confidenceTable,  vmin=0, \
                 annot=True, fmt='.0f', xticklabels=rpmAxis, yticklabels=kpaAxis, annot_kws={"size":6})
     plt.savefig('egoConf.png', dpi=300)
 
@@ -214,7 +220,7 @@ def egoFromLog(file, kpaAxis, rpmAxis, veTable):
         indexTPS = row.index("TPS")
         indexETE = row.index("ETE")
 
-        lastTPS = sample = ignoredEGO = ignoredRPM = ignoredETE = ignoredDTPS = 0;
+        lastTPS = sample = ignoredEGO = ignoredRPM = ignoredETE = ignoredDTPS = ignoredTPS = 0;
 
         rejectedSamples = np.array([])
         sys.stdout.write("Parsing datalog")
@@ -238,8 +244,11 @@ def egoFromLog(file, kpaAxis, rpmAxis, veTable):
                 ignoredETE += 1
             elif (EGO > maxEGO) or (EGO < minEGO):
                 ignoredEGO += 1
-            elif (DTPS > maxDTPS and MAP < 80):
+            elif (DTPS > (MAP/100)*maxDTPS):
+            #elif (DTPS > maxDTPS and MAP < 80):
                 ignoredDTPS += 1
+            elif (TPS < minTPS):
+                ignoredTPS += 1;
             else:
                 # the sample is accepted
                 continue
@@ -257,9 +266,10 @@ def egoFromLog(file, kpaAxis, rpmAxis, veTable):
                 sys.stdout.write('\b \b')
                 sys.stdout.flush()
 
-            if (sample > rejectedSamples[nextRejectedSampleIndex] + sampleRejectionWindowWidth/2):
+            if (sample > rejectedSamples[nextRejectedSampleIndex] + sampleRejectionWindowWidth):
                 nextRejectedSampleIndex += 1
-            if (abs(sample - rejectedSamples[nextRejectedSampleIndex]) <= sampleRejectionWindowWidth/2):
+            if (sample > rejectedSamples[nextRejectedSampleIndex] and
+                (sample - rejectedSamples[nextRejectedSampleIndex]) <= sampleRejectionWindowWidth):
                 numRejectedSamples += 1
                 continue
 
@@ -274,6 +284,10 @@ def egoFromLog(file, kpaAxis, rpmAxis, veTable):
 
             cellWeight = getCellWeight(rpmAxis, kpaAxis, RPM, MAP)
             lambdaSigmaNum += cellWeight * EGO
+            # TODO      Output the cell, its weight, and the rest of the data from the sample -  this is the second pass - should we do this during the first pass.....???
+            # how about the sample is output when the cell confidence is > 80% or something, so we only record the direct hits?
+            # should there be some model of lag through to the o2 sensor? does this vary with RPM? how can this delay be measured?
+
             lambdaSigmaDen += cellWeight
 
     print '\n', sample, "samples seen; ignored", ignoredETE, "warmup,", ignoredRPM, "rpm,", ignoredEGO, "ego, and", ignoredDTPS, "dtps"
@@ -288,6 +302,8 @@ def egoFromLog(file, kpaAxis, rpmAxis, veTable):
 def fixVE(veTable, afrTable, egoTable, confidenceTable):
     deltaVeTable = np.zeros_like(veTable)
     for index, value in np.ndenumerate(veTable):
+        if confidenceTable[index] < minConfidenceThreshold:
+            continue
         effectiveLambda = (veChangeFriction * afrTable[index] + egoTable[index] * confidenceTable[index]) / (veChangeFriction + confidenceTable[index])
         #TODO plot the effectiveLambda table too
         if (effectiveLambda > 0):
